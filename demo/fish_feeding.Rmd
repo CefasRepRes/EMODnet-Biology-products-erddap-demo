@@ -1,5 +1,5 @@
 ---
-title: "Create a EMODnet-Biology data product as NetCDF"
+title: "Create a fish feeding EMODnet-Biology data product as NetCDF"
 output: 
   html_document:
     code_folding: "show"
@@ -22,7 +22,7 @@ knitr::opts_chunk$set(
 
 # Settings
 
-There are four dependencies used in this demo. The most important is the [RNetCDF](https://cran.r-project.org/web/packages/RNetCDF/index.html) package. This is a low-level R interface to the file format NetCDF designed by Unidata. Other packages to interact with NetCDF in R are [ncdf4](https://cran.r-project.org/web/packages/ncdf4/) and [tidync](https://cran.r-project.org/web/packages/tidync/).
+There are four dependencies. The most important is the [RNetCDF](https://cran.r-project.org/web/packages/RNetCDF/index.html) package. This is a low-level R interface to the file format NetCDF designed by Unidata. Other packages to interact with NetCDF in R are [ncdf4](https://cran.r-project.org/web/packages/ncdf4/) and [tidync](https://cran.r-project.org/web/packages/tidync/).
 
 The rest of libraries are used as helpers.
 
@@ -45,11 +45,11 @@ dataset
 
 # Arrange the data set
 
-The variable of interest is `occurrenceStatus`. **It has either presences (1) or absences (0)**
+There are two variables of interest, `biomass` and `abundance`. They are numeric
 
 It can be considered that this variable is defined by **four dimensions**: **Spatially**, these are `decimalLongitude` and `decimalLatitude`. **Timewise** is the column `eventDate`.
 
-The fourth dimension that defines the variable of interest here is the **taxon**, which is shown in the columns `scientificName`, `scientificNameID` and `AphiaID`. The first is the scientific name of the taxa, while `scientificNameID` has the Life Science Identifier (LSID) as an uri. The column `AphiaID` is the unique identifier for a taxon name used in the [World Record of Marine Species](https://www.marinespecies.org/).
+The fourth dimension that defines the variable of interest here is the **axis**, which is shown in the column `axis`. There might be other info about these axes
 
 ## Technical constrain: Edit `eventDate`
 
@@ -160,7 +160,7 @@ The first step is to **create a netcdf file** that will work as a placeholder to
 
 ```{r create_nc}
 # Create nc file
-nc <- create.nc("../data/derived/foo.nc") 
+nc <- create.nc("./data/derived/foo.nc") 
 ```
 
 ## Define dimensions
@@ -446,7 +446,7 @@ for(i in 1:4){
   
   # Read a chunk of data, subsetting to only the taxa of interest in each iteration
   data_at_taxa_i <- read_csv_chunked(
-    file = '../data/derived/longer.csv', 
+    file = './data/derived/longer.csv', 
     callback = DataFrameCallback$new(
       function(x, pos) subset(x, aphiaid == taxa_i)
     )
