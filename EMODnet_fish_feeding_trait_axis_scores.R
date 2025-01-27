@@ -61,7 +61,8 @@ for(p in pkgs){
 # save(alldf, file='Y:/C8424_Pyramids_Of_Life_SMMR/Data_Storage/Biological/EMODnet/combined_survey_data_for_EMODnet.R')
 
 #################################################
-setwd('Y:/C8424_Pyramids_Of_Life_SMMR/Data_Storage/Biological/EMODnet')
+#setwd('Y:/C8424_Pyramids_Of_Life_SMMR/Data_Storage/Biological/EMODnet')
+setwd("C:\Users\KC05\CEFAS\Murray Thompson (Cefas) - data")
 
 # load processed survey data
 load('combined_survey_data_for_EMODnet.R')

@@ -38,29 +38,32 @@ library(glue)
 This is **a fragment of a real data set**, adjusted to serve as a small example. The names of the columns are [Darwin Core terms](https://dwc.tdwg.org/terms)
 
 ```{r read}
-dataset <- read_csv("../data/raw/dataset.csv")
+load("../data/fish/dat_for_netcdf.Rdata")
 
-dataset
+dataset <- dat_for_netcdf
+str(dataset)
+names(dataset)[3] <- "axis"
 ```
 
 # Arrange the data set
 
-There are two variables of interest, `biomass` and `abundance`. They are numeric
-
-It can be considered that this variable is defined by **four dimensions**: **Spatially**, these are `decimalLongitude` and `decimalLatitude`. **Timewise** is the column `eventDate`.
+There is one variables of `av_bw_axis_scores`. This is numeric
+I think it contains average  biomass in kg per sqkm?
+It can be considered that this variable is defined by **four dimensions**: **Spatially**, these are `lon` and `lat`. **Timewise** is the column `year`.
 
 The fourth dimension that defines the variable of interest here is the **axis**, which is shown in the column `axis`. There might be other info about these axes
 
-## Technical constrain: Edit `eventDate`
+## Technical constrain: Edit `year`
 
 The `eventDate` **must be transformed to temporal amounts**. These are seconds, days, years etc since a certain date. There is a **helper** in the RNetCDF package: `uitinvcal.nc()`
 
 In this demo, the units will be `days since 1970-01-01 00:00:00`.
+Since the time is only provided as a year, we assume the first of january.
 
 ```{r date}
 dataset$time <- utinvcal.nc(
   unitstring = "days since 1970-01-01 00:00:00" , 
-  value = as.POSIXct(dataset$eventDate, tz = "UTC")
+  value = as.POSIXct(paste(dataset$year, "01", "01", sep = "-"), format = "%Y-%m-%d", tz = "UTC")
 )
 
 unique(dataset$eventDate)
@@ -78,43 +81,41 @@ The base function `expand.grid()` allows to pass vectors and create a data frame
 # decimaLongitude, decimalLatitude, eventDate and AphiaID
 dataset <- dataset %>%
   mutate(
-    id = glue("{decimalLongitude}-{decimalLatitude}-{time}-{AphiaID}")
+    id = glue("{lon}-{lat}-{time}-{axis}")
   )
 
 # Extract the unique and sorted values of the 4 dimensions
-lon = sort(unique(dataset$decimalLongitude))
-lat = sort(unique(dataset$decimalLatitude))
+lon = sort(unique(dataset$lon))
+lat = sort(unique(dataset$lat))
 time = sort(unique(dataset$time))
+axis = sort(unique(dataset$axis))
 
-# Taxon will be put in a new data frame
-taxon <- tibble(
-  aphiaid = dataset$AphiaID,
-  taxon_name = dataset$scientificName,
-  taxon_lsid = dataset$scientificNameID) %>% 
-  distinct() %>%
-  arrange(aphiaid)
 
 # Use expand.grid() to create a data frame with all the possible 
 # combinations of the 4 dimensions
 longer <- expand.grid(lon = lon, lat = lat, time = time, 
-                     aphiaid = taxon$aphiaid, 
+                     axis = axis, 
                      stringsAsFactors = FALSE)
+
 
 # Define unique identifier again and merge the variable occurrenceStatus 
 # with presences and absences
 
 dataset <- dataset %>%
-  select(id, occurrenceStatus)
+  select(id, av_bw_axis_scores)
 
 longer <- longer %>% 
   mutate(
-    id = glue("{lon}-{lat}-{time}-{aphiaid}")
+    id = glue("{lon}-{lat}-{time}-{axis}")
   ) %>%
   left_join(dataset) %>%
   select(-id)
 
+# longer$date <- formatted_time <- as.POSIXct(longer$time *86400, origin = "1970-01-01", tz = "UTC")
+
+
 # Save for later
-write_csv(longer, "../data/derived/longer.csv")
+write_csv(longer, "../data/derived/longer_fish.csv")
 
 # Inspect
 longer
@@ -126,25 +127,25 @@ longer
 
 In the demo dataset, we know that the **total length of each dimension** are:
 
--   lon: 10
--   lat: 10
--   time: 3
--   taxa: 4
+-   lon: 29
+-   lat: 51
+-   time: 24
+-   axis: 2
 
-These lengths will be passed to the R function `array()` as a vector: `c(10, 10, 3, 4)`. We will also pass the variable of interest `longer$occurrenceStatus`. However, this variable must have as length the product of all lengths of all dimensions: **This is why we got all the combinations of the dimensions** via `expand.grid()`.
+These lengths will be passed to the R function `array()` as a vector: `c(29, 51, 24, 2)`. We will also pass the variable of interest `longer$occurrenceStatus`. However, this variable must have as length the product of all lengths of all dimensions: **This is why we got all the combinations of the dimensions** via `expand.grid()`.
 
 ```{r create_array}
 # The product of the lengths of all dimensions
-10 * 10 * 3 * 4
+29 * 51 * 24 * 2
 
 # Is the same as the length of the variable of interest, including all 
 # possible combinations of the dimensions even if this coerce NA's
-length(longer$occurrenceStatus)
+length(longer$av_bw_axis_scores)
 
 # Create array
 array <- array(
-  data = longer$occurrenceStatus,
-  dim = c(10, 10, 3, 4)
+  data = longer$av_bw_axis_scores,
+  dim = c(length(lon), length(lat), length(time), length(axis))
 )
 ```
 
@@ -160,7 +161,7 @@ The first step is to **create a netcdf file** that will work as a placeholder to
 
 ```{r create_nc}
 # Create nc file
-nc <- create.nc("./data/derived/foo.nc") 
+nc <- create.nc("../data/derived/fish.nc") 
 ```
 
 ## Define dimensions
@@ -235,11 +236,11 @@ var.put.nc(nc, variable = "time", data = time)
 var.get.nc(nc, variable = "time")
 ```
 
-### Taxon
+### Axis
 
-To define the taxon dimension, there will be one dimension called `aphiaid`, **with three variables assigned:**
+To define the axis dimension, there will be one dimension called `axis`, **with three variables assigned:**
 
--   `aphiaid`: the actual aphiaid as an integer
+-   `axis`: the actual axis name as a character
 -   `taxon_name`: the scientific name of the taxa
 -   `taxon_lsid`: the LSID (unique identifier) of the taxa
 
@@ -249,43 +250,45 @@ The dimension `aphiaid` will be used later to define the variable of interest. I
 
 Note that **character variables in NetCDF require to be defined also by a dimension typically called "string"**. Its length is the **total number of characters** that can be hosted in the variable of type character. This is a requirement of NetCDF4.
 
-#### aphiaid
+#### axis
 
-```{r aphiaid}
-# Define the aphia and string80 dimensions
-dim.def.nc(nc, dimname = "aphiaid", dimlength = nrow(taxon))
+I had to make axis numeric so instead of MDS1 and MDS2 it is just 1 and 2
+
+```{r axis}
+# Define the axis and string80 dimensions
+dim.def.nc(nc, dimname = "axis", dimlength = length(axis))
 dim.def.nc(nc, dimname = "string80", dimlength = 80)
 
-# Add aphiaid variable and attributes 
-var.def.nc(nc, varname = "aphiaid", vartype = "NC_INT", dimensions = "aphiaid")
-att.put.nc(nc, variable = "aphiaid", name = "long_name", type = "NC_CHAR", value = "Life Science Identifier - World Register of Marine Species")
-att.put.nc(nc, variable = "aphiaid", name = "units", type = "NC_CHAR", value = "level")
+# Add axis variable and attributes 
+var.def.nc(nc, varname = "axis", vartype = "NC_INT", dimensions = "axis")
+att.put.nc(nc, variable = "axis", name = "long_name", type = "NC_CHAR", value = axis_long_name)
+att.put.nc(nc, variable = "axis", name = "units", type = "NC_CHAR", value = "level")
 
-# Put aphiaid data
-var.put.nc(nc, variable = "aphiaid", data = taxon$aphiaid)
+# Put axis data
+var.put.nc(nc, variable = "axis", data = as.numeric(substring(axis, 4,4)))
 
 # Check
-var.get.nc(nc, variable = "aphiaid")
+var.get.nc(nc, variable = "axis")
 ```
 
-#### taxon_name
+#### axis_name
 
-```{r taxon_name}
+```{r axis_name}
 # Add taxon_name variable and attributes
-var.def.nc(nc, varname = "taxon_name", vartype = "NC_CHAR", dimension = c("string80", "aphiaid"))
-att.put.nc(nc, variable = "taxon_name", name = "standard_name", type = "NC_CHAR", value = "biological_taxon_name")
-att.put.nc(nc, variable = "taxon_name", name = "long_name", type = "NC_CHAR", value = "Scientific name of the taxa")
+var.def.nc(nc, varname = "axis_name", vartype = "NC_CHAR", dimension = c("string80", "axis"))
+att.put.nc(nc, variable = "axis_name", name = "standard_name", type = "NC_CHAR", value = "axis name")
+att.put.nc(nc, variable = "axis_name", name = "long_name", type = "NC_CHAR", value = axis_long_name)
 
 # Put taxon_name data
-var.put.nc(nc, variable = "taxon_name", data = taxon$taxon_name)
+var.put.nc(nc, variable = "axis_name", data = axis)
 
 # Check
-var.get.nc(nc, variable = "taxon_name")
+var.get.nc(nc, variable = "axis_name")
 ```
 
 #### taxon_lsid
 
-```{r taxon_lsid}
+```{r taxon_lsid, eval = F}
 # Add taxon_lsid variable and attributes
 var.def.nc(nc, varname = "taxon_lsid", vartype = "NC_CHAR", dimension = c("string80", "aphiaid"))
 att.put.nc(nc, variable = "taxon_lsid", name = "standard_name", type = "NC_CHAR", value = "biological_taxon_lsid")
@@ -331,13 +334,13 @@ The values stating presences and absences are 1 and 0, hence the variable must b
 
 Some other attributes are added. E.g. `_FillValue` is a requirement for the CF-Convention stating what value will be used in case of NULL or NA. This is typically `-99999`. The attribute `long_name` is free text and it describes the variable.
 
-```{r def_pa}
-# Create the presence_absence variable defined by the four dimensions
-var.def.nc(nc, varname = "presence_absence", vartype = "NC_INT", dimensions = c("lon", "lat", "time", "aphiaid"))
+```{r def_biomass}
+# Create the biomass variable defined by the four dimensions
+var.def.nc(nc, varname = "biomass", vartype = "NC_DOUBLE", dimensions = c("lon", "lat", "time", "axis"))
 
 # Add attributes
-att.put.nc(nc, variable = "presence_absence", name = "_FillValue", type = "NC_INT", value = -99999)
-att.put.nc(nc, variable = "presence_absence", name = "long_name", type = "NC_CHAR", value = "Probability of occurrence of biological entity")
+att.put.nc(nc, variable = "biomass", name = "_FillValue", type = "NC_DOUBLE", value = -99999)
+att.put.nc(nc, variable = "biomass", name = "long_name", type = "NC_CHAR", value = av_bw_axis_scores_long_name)
 ```
 
 If there were a standard name for such a variable in the [CF-Convention](http://cfconventions.org/), this would be add to an attribute named `standard_name`.
@@ -347,120 +350,10 @@ If there were a standard name for such a variable in the [CF-Convention](http://
 As we previously created a 4D array, we can pass this directly to `var.put.nc()`
 
 ```{r put_array}
-var.put.nc(nc, variable = "presence_absence", data = array) 
-```
+var.put.nc(nc, variable = "biomass", data = array) 
 
-### Add data from a vector: All at once
-
-Adding the data from a data set or a vector is also possible by using the parameters `start` and `count` in `var.put.nc()` \*\* In `start`, each number indicates **the index from which you start adding data** for each variable. \*\* In `count`, each number indicates **the length of the data added** for each variable.
-
-In this demo, as we have a 4D variable, the vectors will be of length 4. We can add all the data at once **by setting each start index as 1, and count as the length of each dimension**. Remember the length of lon is 10, lat is 10, time is 3 andtaxon is 4. `start` is set as `c(1, 1, 1, 1)` as we add all the date from the beginning of each dimension.
-
-```{r put_all_at_once}
-var.put.nc(nc, variable = "presence_absence", 
-           data = longer$occurrenceStatus, 
-           start = c(1, 1, 1, 1), 
-           count = c(10, 10, 3, 4)) 
-```
-
-### Add data from a vector: In chunks
-
-However, out in the wild the data product will become very large when adding all possible combinations of the dimensions. See how the demo data set of only 10 rows exploded up to 1200 rows when adding all possible combinations of the four dimensions
-
-```{r compare_size}
-nrow(dataset)
-
-nrow(longer)
-```
-
-Imagine what would happen with a real data set with thousands of rows!
-
-Typically you won't have enough **memory** in your computer to **create such a large array**. To work around this issue, you can **add data in chunks** by setting correctly `start` and `count`
-
-For instance, you can **loop over** the data to **add one taxon per iteration**.
-
-```{r put_by_taxon}
-# Iterate from 1 to 4 as there are 4 possible taxons
-for(i in 1:4){
-  
-  taxa_i <- taxon$aphiaid[i]
-  
-  data_at_taxa_i <- subset(longer, longer$aphiaid == taxa_i)
-  
-  var.put.nc(nc, variable = "presence_absence", data = data_at_taxa_i$occurrenceStatus, start = c(1, 1, 1, i), count = c(10, 10, 3, 1)) 
-  
-}
-```
-
-Note that the last element of start is set as `i`, which is the length of the dimension `aphiaid`: 1 to 4
-
-The last element of `count` corresponds to the count of `aphiaid.` It is set as 1 because in each iteration only the data of one taxon is put in the variable.
-
-### Add data from a vector: One by one
-
-Furthermore, you can **nest loops** as much as you want to **add the slice of data that you can handle at once**. Below there is an **extreme example** of a four times nested loop, in which **in each iteration only one data is added** to the NetCDF file.
-
-Remember to use the length of each dimension in the `for()` loop. Note that `count` is set as `c(1, 1, 1, 1)` as only one data point is added in each iteration. The argument `start` contains the index of each loop.
-
-```{r put_4times_nested_loop, eval=FALSE}
-for(loni in 1:10){
-  for(lati in 1:10){
-    for(timei in 1:3){
-      for(taxai in 1:4){
-        
-        # Read only one row per iteration
-        data_at_i <- longer %>%
-          filter(
-            aphiaid == taxon$aphiaid[taxai],
-            time == time[timei],
-            lat == lat[lati],
-            lon == lon[loni]
-          )
-        
-        # Put the data into 
-        var.put.nc(nc, variable = "presence_absence", 
-                   data = data_at_i$occurrenceStatus, 
-                   start = c(loni, lati, timei, taxai), 
-                   count = c(1, 1, 1, 1)) 
-      }
-    }
-  }
-}
-```
-
-Note this is an extreme example and its performance is not optimal.
-
-### Add data from disk
-
-These loops are specially useful to turn large amounts of data into NetCDF as **you can have your data saved into disk and iterate to read a certain part of it and put into netcdf at a time.**
-
-In next and last example, it is **assumed that the data is too large to be read into memory**. In this case, we can write **a loop that reads a chunk of data** that we know that R can handle, **inmediately put it in the NetCDF file**, and once it is saved there as NetCDF simply remove from memory.
-
-You can read chunks of data from a `.csv` file either with `readr::read_csv_chunked` or `sqldf::read.csv.sql`. We will use the first in this example. Remember we saved the `longer` data frame into `./data/derived/longer.csv`.
-
-```{r put_chnunks, message=FALSE}
-for(i in 1:4){
-  
-  # Identify the taxa of interest based on the i index
-  taxa_i <- taxon$aphiaid[i]
-  
-  # Read a chunk of data, subsetting to only the taxa of interest in each iteration
-  data_at_taxa_i <- read_csv_chunked(
-    file = './data/derived/longer.csv', 
-    callback = DataFrameCallback$new(
-      function(x, pos) subset(x, aphiaid == taxa_i)
-    )
-  )
-  
-  # Put the data into the NetCDF file
-  var.put.nc(nc, variable = "presence_absence", 
-             data = data_at_taxa_i$occurrenceStatus, 
-             start = c(1, 1, 1, i), 
-             count = c(10, 10, 3, 1)) 
-  
-  # Inmediately remove the dataset read in the iteration to free up memory
-  rm(data_at_taxa_i)
-}
+# Check
+var.get.nc(nc, variable = "biomass")
 ```
 
 ## Global Attributes
