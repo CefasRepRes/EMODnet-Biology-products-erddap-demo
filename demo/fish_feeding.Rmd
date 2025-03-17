@@ -158,8 +158,9 @@ dataset <- unique(dat_for_netcdf[,c("ices", "lon", "lat")]) %>%
     id = glue("{lon}-{lat}")
   )
 
-# dataset <- dataset %>%
-#   mutate(ices = substr(ices, 1, 2))
+dataset <- dataset %>%
+  mutate(ices = substr(ices, 1, 2))
+dataset$ices <- as.numeric(dataset$ices)
 
 # Extract the unique and sorted values of the 4 dimensions
 lon = sort(unique(dataset$lon))
@@ -204,7 +205,7 @@ In the demo dataset, we know that the **total length of each dimension** are:
 
 These lengths will be passed to the R function `array()` as a vector: `c(29, 51)`. We will also pass the variable of interest `longer$ices`. However, this variable must have as length the product of all lengths of all dimensions: **This is why we got all the combinations of the dimensions** via `expand.grid()`.
 
-```{r create_array_ices}
+```{r create_array_ices, eval = F}
 # The product of the lengths of all dimensions
 29 * 51
 
@@ -343,10 +344,10 @@ var.get.nc(nc, variable = "axis")
 ```{r axis_name}
 # Add axis name variable and attributes
 var.def.nc(nc, varname = "axis_name", vartype = "NC_CHAR", dimension = c("string80", "axis"))
-att.put.nc(nc, variable = "axis_name", name = "axis_name", type = "NC_CHAR", value = "feeding guild axis name")
+att.put.nc(nc, variable = "axis_name", name = "long_name", type = "NC_CHAR", value = "feeding guild axis name")
 
 # Put axis_name data
-var.put.nc(nc, variable = "axis_name", data = c("scales between benthivores and planktivores", "scales between piscivores and planktivores/benthivores"))
+var.put.nc(nc, variable = "axis_name", data = c("MDS 1 - scales between benthivores and planktivores", "MDS 2 - scales between piscivores and planktivores/benthivores"))
 
 # Check
 var.get.nc(nc, variable = "axis_name")
@@ -408,7 +409,7 @@ att.put.nc(nc, variable = "axis_score", name = "comment", type = "NC_CHAR", valu
 ```{r def_ices, eval = F}
 # Create the biomass variable defined by the four dimensions
 var.def.nc(nc, varname = "ices_rect", vartype = "NC_CHAR", dimensions = c("lon", "lat"))
-var.def.nc(nc, varname = "test", vartype = "NC_CHAR", dimensions = c("lon", "lat"))
+var.def.nc(nc, varname = "test", vartype = "NC_DOUBLE", dimensions = c("lon", "lat"))
 # Add attributes
 
 att.put.nc(nc, variable = "ices_rect", name = "long_name", type = "NC_CHAR", value = "ices_rectangle")
@@ -436,7 +437,7 @@ var.put.nc(nc, variable = "ices_rect", data = array_ices)
 count <- c(dim(array_ices))
 
 # Write data to the NetCDF variable
-var.put.nc(nc, variable = "test", data = t(array_ices))
+var.put.nc(nc, variable = "test", data = array_ices)
 
 var.put.nc(nc, variable = "test3", data = array_ices, count = dim(array_ices))
 # Check
@@ -508,7 +509,7 @@ attributes <- list(
   metadata_link = "https://data.cefas.co.uk/view/21771",                  
   references = "https://doi.org/10.14466/CefasDataHub.149 ; Thompson et al 2024 and https://doi.org/10.5194/essd-2024-102; Thompson et al in review",
   citation = "Murray et al (2025). Biomass-Weighted Fish Functional Feeding Traits for the Northeast Atlantic. (1997-2020).",
-  acknowledgement = "European Marine Observation Data Network (EMODnet) Biology project (EMFF/2019/1.3.1.9/Lot 6/SI2.837974), funded by the European Union under Regulation (EU) No 508/2014 of the European Parliament and of the Council of 15 May 2014 on the European Maritime and Fisheries Fund"
+  acknowledgement = "European Marine Observation Data Network (EMODnet) Biology project CINEA/EMFAF/2022/3.5.2/SI2.895681, funded by the European Union under Regulation (EU) No 508/2014 of the European Parliament and of the Council of 15 May 2014 on the European Maritime and Fisheries Fund"
 )
 
 # Define function that detects if the data type should be character of 
