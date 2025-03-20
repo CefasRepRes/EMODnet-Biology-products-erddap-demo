@@ -81,20 +81,19 @@ The base function `expand.grid()` allows to pass vectors and create a data frame
 # decimaLongitude, decimalLatitude, eventDate and AphiaID
 dataset <- dataset %>%
   mutate(
-    id = glue("{lon}-{lat}-{time}-{axis}")
+    id = glue("{time}-{axis}-{lat}-{lon}")
   )
 
 # Extract the unique and sorted values of the 4 dimensions
-lon = sort(unique(dataset$lon))
-lat = sort(unique(dataset$lat))
 time = sort(unique(dataset$time))
 axis = sort(unique(dataset$axis))
+lon = sort(unique(dataset$lon))
+lat = sort(unique(dataset$lat))
 
 
 # Use expand.grid() to create a data frame with all the possible 
 # combinations of the 4 dimensions
-longer <- expand.grid(lon = lon, lat = lat, time = time, 
-                     axis = axis, 
+longer <- expand.grid(time = time, axis = axis, lat = lat, lon = lon,  
                      stringsAsFactors = FALSE)
 
 
@@ -106,7 +105,7 @@ dataset <- dataset %>%
 
 longer <- longer %>% 
   mutate(
-    id = glue("{lon}-{lat}-{time}-{axis}")
+    id = glue("{time}-{axis}-{lat}-{lon}")
   ) %>%
   left_join(dataset) %>%
   select(-id)
@@ -127,16 +126,16 @@ longer
 
 In the demo dataset, we know that the **total length of each dimension** are:
 
--   lon: 29
--   lat: 51
 -   time: 24
 -   axis: 2
+-   lat: 51
+-   lon: 29
 
 These lengths will be passed to the R function `array()` as a vector: `c(29, 51, 24, 2)`. We will also pass the variable of interest `longer$av_bw_axis_scores`. However, this variable must have as length the product of all lengths of all dimensions: **This is why we got all the combinations of the dimensions** via `expand.grid()`.
 
 ```{r create_array}
 # The product of the lengths of all dimensions
-29 * 51 * 24 * 2
+24 * 2  * 51 * 29
 
 # Is the same as the length of the variable of interest, including all 
 # possible combinations of the dimensions even if this coerce NA's
@@ -145,12 +144,12 @@ length(longer$av_bw_axis_scores)
 # Create array
 array <- array(
   data = longer$av_bw_axis_scores,
-  dim = c(length(lon), length(lat), length(time), length(axis))
+  dim = c(length(time), length(axis), length(lat), length(lon))
 )
 ```
 
 
-```{r coerce_ices_into_array}
+```{r coerce_ices_into_array, eval = F}
 # First add an unique identifier by the combination of: 
 # decimaLongitude, decimalLatitude, eventDate and AphiaID
 dataset <- unique(dat_for_netcdf[,c("ices", "lon", "lat")]) %>%
@@ -392,7 +391,7 @@ Some other attributes are added. E.g. `_FillValue` is a requirement for the CF-C
 
 ```{r def_biomass}
 # Create the biomass variable defined by the four dimensions
-var.def.nc(nc, varname = "axis_score", vartype = "NC_DOUBLE", dimensions = c("lon", "lat", "time", "axis"))
+var.def.nc(nc, varname = "axis_score", vartype = "NC_DOUBLE", dimensions = c("time", "axis", "lat", "lon"))
 av_bw_axis_scores_short_name = "non-metric multidimensional axis scores"
 av_bw_axis_scores_long_name = "biomass-weighted mean axis scores from non-metric multidimensional analysis (NMDS) of fish stomach contents data" # explain what this is
 # Add attributes
@@ -508,7 +507,7 @@ attributes <- list(
   # featureType = "Point",                  
   metadata_link = "https://data.cefas.co.uk/view/21771",                  
   references = "https://doi.org/10.14466/CefasDataHub.149 ; Thompson et al 2024 and https://doi.org/10.5194/essd-2024-102; Thompson et al in review",
-  citation = "Murray et al (2025). Biomass-Weighted Fish Functional Feeding Traits for the Northeast Atlantic. (1997-2020).",
+  citation = "Murray et al (2025). Integrated data product created under EMODNet Biology: Biomass-Weighted Fish Functional Feeding Traits for the Northeast Atlantic (1997-2020).",
   acknowledgement = "European Marine Observation Data Network (EMODnet) Biology project CINEA/EMFAF/2022/3.5.2/SI2.895681, funded by the European Union under Regulation (EU) No 508/2014 of the European Parliament and of the Council of 15 May 2014 on the European Maritime and Fisheries Fund"
 )
 
@@ -549,7 +548,7 @@ close.nc(nc)
 ```
 
 
-```{r netcdf4}
+```{r netcdf4, eval = F}
 library(ncdf4)
 nc2 <- nc_open("../data/derived/fish2.nc", write = TRUE)
 names(nc2$var)
