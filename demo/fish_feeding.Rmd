@@ -33,9 +33,11 @@ library(dplyr)
 library(glue)
 ```
 
-# An example data set
+# Fish feeding dataset
 
-This is **a fragment of a real data set**, adjusted to serve as a small example. The names of the columns are [Darwin Core terms](https://dwc.tdwg.org/terms)
+Read in Biomass-Weighted Fish Functional Feeding Traits for the Northeast Atlantic.
+
+This product is the result of collating and analyzing fish stomach contents data from the North Atlantic and Arctic Oceans to classify fish into functional feeding guilds based on their diet. Non-metric multidimensional scaling (NMDS) analysis was used to provide information on the differences between fish species and size class feeding traits in relation to one another. The NMDS analysis presents axis scores that offer a more nuanced perspective compared to categorical data (i.e. feeding guilds), of different predator feeding traits. This analysis is part of the process to classify feeding guilds based on predator stomach contents data. See figure S4 in https://essd.copernicus.org/preprints/essd-2024-102/essd-2024-102-supplement.pdf for a pictorial depiction
 
 ```{r read}
 load("../data/fish/dat_for_netcdf.Rdata")
@@ -47,8 +49,8 @@ names(dataset)[3] <- "axis"
 
 # Arrange the data set
 
-There is one variables of `av_bw_axis_scores`. This is numeric
-I think it contains average  biomass in kg per sqkm?
+There is one variable, `av_bw_axis_scores`. This is numeric.
+
 It can be considered that this variable is defined by **four dimensions**: **Spatially**, these are `lon` and `lat`. **Timewise** is the column `year`.
 
 The fourth dimension that defines the variable of interest here is the **axis**, which is shown in the column `axis`. There might be other info about these axes
@@ -57,7 +59,7 @@ The fourth dimension that defines the variable of interest here is the **axis**,
 
 The `eventDate` **must be transformed to temporal amounts**. These are seconds, days, years etc since a certain date. There is a **helper** in the RNetCDF package: `uitinvcal.nc()`
 
-In this demo, the units will be `days since 1970-01-01 00:00:00`.
+The units will be `days since 1970-01-01 00:00:00`.
 Since the time is only provided as a year, we assume the first of january.
 
 ```{r date}
@@ -78,22 +80,22 @@ The base function `expand.grid()` allows to pass vectors and create a data frame
 
 ```{r coerce_into_array}
 # First add an unique identifier by the combination of: 
-# decimaLongitude, decimalLatitude, eventDate and AphiaID
+# decimaLongitude, decimalLatitude, time and axis
 dataset <- dataset %>%
   mutate(
-    id = glue("{time}-{axis}-{lat}-{lon}")
+    id = glue("{lon}-{lat}-{axis}-{time}")
   )
 
 # Extract the unique and sorted values of the 4 dimensions
-time = sort(unique(dataset$time))
-axis = sort(unique(dataset$axis))
 lon = sort(unique(dataset$lon))
 lat = sort(unique(dataset$lat))
+axis = sort(unique(dataset$axis))
+time = sort(unique(dataset$time))
 
 
 # Use expand.grid() to create a data frame with all the possible 
 # combinations of the 4 dimensions
-longer <- expand.grid(time = time, axis = axis, lat = lat, lon = lon,  
+longer <- expand.grid(lon = lon, lat = lat, axis = axis, time = time,  
                      stringsAsFactors = FALSE)
 
 
@@ -105,7 +107,7 @@ dataset <- dataset %>%
 
 longer <- longer %>% 
   mutate(
-    id = glue("{time}-{axis}-{lat}-{lon}")
+    id = glue("{lon}-{lat}-{axis}-{time}")
   ) %>%
   left_join(dataset) %>%
   select(-id)
@@ -124,18 +126,19 @@ longer
 
 **NetCDF is designed to host array-oriented scientific data** ([ref](https://docs.unidata.ucar.edu/netcdf-c/current/)). Transforming into an object of type `array` in R will allow the easiest way to add data into a NetCDF file.
 
-In the demo dataset, we know that the **total length of each dimension** are:
+In the dataset, we know that the **total length of each dimension** are:
 
--   time: 24
--   axis: 2
--   lat: 51
 -   lon: 29
+-   lat: 51
+-   axis: 2
+-   time: 24
 
-These lengths will be passed to the R function `array()` as a vector: `c(29, 51, 24, 2)`. We will also pass the variable of interest `longer$av_bw_axis_scores`. However, this variable must have as length the product of all lengths of all dimensions: **This is why we got all the combinations of the dimensions** via `expand.grid()`.
+
+These lengths will be passed to the R function `array()` as a vector: `c(29, 51, 2, 24)`. We will also pass the variable of interest `longer$av_bw_axis_scores`. However, this variable must have as length the product of all lengths of all dimensions: **This is why we got all the combinations of the dimensions** via `expand.grid()`.
 
 ```{r create_array}
 # The product of the lengths of all dimensions
-24 * 2  * 51 * 29
+29 * 51  * 2 * 24
 
 # Is the same as the length of the variable of interest, including all 
 # possible combinations of the dimensions even if this coerce NA's
@@ -144,78 +147,7 @@ length(longer$av_bw_axis_scores)
 # Create array
 array <- array(
   data = longer$av_bw_axis_scores,
-  dim = c(length(time), length(axis), length(lat), length(lon))
-)
-```
-
-
-```{r coerce_ices_into_array, eval = F}
-# First add an unique identifier by the combination of: 
-# decimaLongitude, decimalLatitude, eventDate and AphiaID
-dataset <- unique(dat_for_netcdf[,c("ices", "lon", "lat")]) %>%
-  mutate(
-    id = glue("{lon}-{lat}")
-  )
-
-dataset <- dataset %>%
-  mutate(ices = substr(ices, 1, 2))
-dataset$ices <- as.numeric(dataset$ices)
-
-# Extract the unique and sorted values of the 4 dimensions
-lon = sort(unique(dataset$lon))
-lat = sort(unique(dataset$lat))
-
-
-
-# Use expand.grid() to create a data frame with all the possible 
-# combinations of the 4 dimensions
-longer <- expand.grid(lon = lon, lat = lat, 
-                     stringsAsFactors = FALSE)
-
-
-# Define unique identifier again and merge the variable occurrenceStatus 
-# with presences and absences
-
-dataset <- dataset %>%
-  select(id, ices)
-
-longer <- longer %>% 
-  mutate(
-    id = glue("{lon}-{lat}")
-  ) %>%
-  left_join(dataset) %>%
-  select(-id)
-
-
-
-# Inspect
-longer
-```
-
-## Turn data frame into a 4D array
-
-**NetCDF is designed to host array-oriented scientific data** ([ref](https://docs.unidata.ucar.edu/netcdf-c/current/)). Transforming into an object of type `array` in R will allow the easiest way to add data into a NetCDF file.
-
-In the demo dataset, we know that the **total length of each dimension** are:
-
--   lon: 29
--   lat: 51
-
-
-These lengths will be passed to the R function `array()` as a vector: `c(29, 51)`. We will also pass the variable of interest `longer$ices`. However, this variable must have as length the product of all lengths of all dimensions: **This is why we got all the combinations of the dimensions** via `expand.grid()`.
-
-```{r create_array_ices, eval = F}
-# The product of the lengths of all dimensions
-29 * 51
-
-# Is the same as the length of the variable of interest, including all 
-# possible combinations of the dimensions even if this coerce NA's
-length(longer$ices)
-
-# Create array
-array_ices <- array(
-  data = longer$ices,
-  dim = c(length(lon), length(lat))
+  dim = c(length(lon), length(lat), length(axis), length(time))
 )
 ```
 
@@ -228,7 +160,7 @@ The first step is to **create a netcdf file** that will work as a placeholder to
 
 ```{r create_nc}
 # Create nc file
-nc <- create.nc("../data/derived/fish.nc") 
+nc <- create.nc("../data/derived/fish_v3.nc") 
 ```
 
 ## Define dimensions
@@ -319,7 +251,7 @@ Note that **character variables in NetCDF require to be defined also by a dimens
 
 #### axis
 
-I had to make axis numeric so instead of MDS1 and MDS2 it is just 1 and 2
+Dimensions must be numeric, so for axis instead of MDS1 and MDS2 it is just 1 and 2
 
 ```{r axis}
 # Define the axis and string80 dimensions
@@ -339,6 +271,8 @@ var.get.nc(nc, variable = "axis")
 ```
 
 #### axis_name
+
+Then axis name is used for the longer names of the axes
 
 ```{r axis_name}
 # Add axis name variable and attributes
@@ -383,15 +317,15 @@ att.put.nc(nc, variable = "crs", name = "GeoTransform", type = "NC_CHAR", value 
 
 ## Define the variable of interest
 
-The variable to add the presence/absence data **must be defined by the four dimensions** considered in this demo. This is passed to `var.def.nc()` in the argument `dimensions` as **a vector containing the names of the dimensions.**
+The variable to add the data **must be defined by the four dimensions**. This is passed to `var.def.nc()` in the argument `dimensions` as **a vector containing the names of the dimensions.**
 
-The values stating presences and absences are 1 and 0, hence the variable must be of type integer.
+The values stating presences and absences are non integer numbers, hence the variable must be of type double
 
 Some other attributes are added. E.g. `_FillValue` is a requirement for the CF-Convention stating what value will be used in case of NULL or NA. This is typically `-99999`. The attribute `long_name` is free text and it describes the variable.
 
 ```{r def_biomass}
 # Create the biomass variable defined by the four dimensions
-var.def.nc(nc, varname = "axis_score", vartype = "NC_DOUBLE", dimensions = c("time", "axis", "lat", "lon"))
+var.def.nc(nc, varname = "axis_score", vartype = "NC_DOUBLE", dimensions = c("lon", "lat", "axis", "time"))
 av_bw_axis_scores_short_name = "non-metric multidimensional axis scores"
 av_bw_axis_scores_long_name = "biomass-weighted mean axis scores from non-metric multidimensional analysis (NMDS) of fish stomach contents data" # explain what this is
 # Add attributes
@@ -405,16 +339,6 @@ att.put.nc(nc, variable = "axis_score", name = "comment", type = "NC_CHAR", valu
 
 ```
 
-```{r def_ices, eval = F}
-# Create the biomass variable defined by the four dimensions
-var.def.nc(nc, varname = "ices_rect", vartype = "NC_CHAR", dimensions = c("lon", "lat"))
-var.def.nc(nc, varname = "test", vartype = "NC_DOUBLE", dimensions = c("lon", "lat"))
-# Add attributes
-
-att.put.nc(nc, variable = "ices_rect", name = "long_name", type = "NC_CHAR", value = "ices_rectangle")
-
-
-```
 
 If there were a standard name for such a variable in the [CF-Convention](http://cfconventions.org/), this would be add to an attribute named `standard_name`.
 
@@ -429,25 +353,12 @@ var.put.nc(nc, variable = "axis_score", data = array)
 var.get.nc(nc, variable = "axis_score")
 ```
 
-```{r put_array_ices, eval = F}
-var.put.nc(nc, variable = "ices_rect", data = array_ices) 
-
-# Define the count vector to match the dimensions of the variable
-count <- c(dim(array_ices))
-
-# Write data to the NetCDF variable
-var.put.nc(nc, variable = "test", data = array_ices)
-
-var.put.nc(nc, variable = "test3", data = array_ices, count = dim(array_ices))
-# Check
-var.get.nc(nc, variable = "test")
-```
 
 ## Global Attributes
 
 NetCDF files can host **metadata in the form of global attributes**. These contain information such as the author, data of creation, affiliation, citation or license.
 
-See below an example of how defining a number of global attributes and adding them programatically.
+
 
 **Click on `code` to unfold**
 
@@ -461,7 +372,7 @@ attributes <- list(
   history = "", # github link here
   source = "", # github link here
   # processing_level = "",
-  comment = "This product is the result of collating and analyzing fish stomach contents data from the North Atlantic and Arctic Oceans to classify fish into feeding guilds. The feeding guilds identified include planktivores, benthivores, bentho-piscivores, and piscivores. Non-metric multidimensional scaling (NMDS) analysis was used to provide a more nuanced understanding of different predator feeding traits in relation to others. The NMDS analysis presents axis scores that offer a bounded data perspective, as opposed to categorical, of different predator feeding traits. This analysis is part of the process to classify feeding guilds based on predator stomach contents data. See figure S4 in https://essd.copernicus.org/preprints/essd-2024-102/essd-2024-102-supplement.pdf for a pictorial depiction. Uses attributes recommended by http://cfconventions.org", #	Miscellaneous information about the data or methods used to produce it. I got this info from the essd paper (edited copilot summary of methods)
+  comment = "This product is the result of collating and analyzing fish stomach contents data from the North Atlantic and Arctic Oceans to classify fish into functional feeding guilds based on their diet. Non-metric multidimensional scaling (NMDS) analysis was used to provide information on the differences between fish species and size class feeding traits in relation to one another. The NMDS analysis presents axis scores that offer a more nuanced perspective compared to categorical data (i.e. feeding guilds), of different predator feeding traits. This analysis is part of the process to classify feeding guilds based on predator stomach contents data. See figure S4 in https://essd.copernicus.org/preprints/essd-2024-102/essd-2024-102-supplement.pdf for a pictorial depiction. Uses attributes recommended by http://cfconventions.org", #	Miscellaneous information about the data or methods used to produce it. I got this info from the essd paper (edited copilot summary of methods)
   # acknowledgment = "",
   license = "CC-BY",
   standard_name_vocabulary = "CF Standard Name Table v1.8",
@@ -507,7 +418,7 @@ attributes <- list(
   # featureType = "Point",                  
   metadata_link = "https://data.cefas.co.uk/view/21771",                  
   references = "https://doi.org/10.14466/CefasDataHub.149 ; Thompson et al 2024 and https://doi.org/10.5194/essd-2024-102; Thompson et al in review",
-  citation = "Murray et al (2025). Integrated data product created under EMODNet Biology: Biomass-Weighted Fish Functional Feeding Traits for the Northeast Atlantic (1997-2020).",
+  citation = "Thompson et al (2025). Biomass-Weighted Fish Functional Feeding Traits for the Northeast Atlantic (1997-2020). Integrated data product created under the European Marine Observation Data Network (EMODnet) Biology project CINEA/EMFAF/2022/3.5.2/SI2.895681, funded by the European Union under Regulation (EU) No 508/2014 of the European Parliament and of the Council of 15 May 2014 on the European Maritime and Fisheries Fund.",
   acknowledgement = "European Marine Observation Data Network (EMODnet) Biology project CINEA/EMFAF/2022/3.5.2/SI2.895681, funded by the European Union under Regulation (EU) No 508/2014 of the European Parliament and of the Council of 15 May 2014 on the European Maritime and Fisheries Fund"
 )
 
@@ -534,7 +445,7 @@ add_global_attributes(nc, attributes)
 
 ## Wrapping up
 
-Congratulations! The NetCDF file containing the product has been created. Now you can inspect the file.
+The NetCDF file containing the product has been created. Now you can inspect the file.
 
 ```{r inspect}
 sync.nc(nc)
